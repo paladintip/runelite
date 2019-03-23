@@ -26,6 +26,10 @@
 package net.runelite.client.plugins.loottracker;
 
 import com.google.inject.Provides;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
+import java.sql.SQLException;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.time.Instant;
@@ -89,6 +93,16 @@ import net.runelite.http.api.loottracker.LootTrackerClient;
 @Slf4j
 public class LootTrackerPlugin extends Plugin
 {
+	// JDBC driver name and database URL
+	static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
+	static final String DB_URL = "jdbc:mysql://localhost/statsosrs";
+
+	//  Database credentials
+	static final String USER = "root";
+	static final String PASS = "";
+	Connection conn = null;
+	Statement stmt = null;
+
 	// Activity/Event loot handling
 	private static final Pattern CLUE_SCROLL_PATTERN = Pattern.compile("You have completed [0-9]+ ([a-z]+) Treasure Trails.");
 	private static final int THEATRE_OF_BLOOD_REGION = 12867;
@@ -253,15 +267,39 @@ public class LootTrackerPlugin extends Plugin
 				return true;
 			});
 		}
+		//Database connection
+		try{
+
+			//STEP 2: Register JDBC driver
+			Class.forName("com.mysql.jdbc.Driver");
+
+			//STEP 3: Open a connection
+			System.out.println("Connecting to database...");
+			conn = DriverManager.getConnection(DB_URL,USER,PASS);
+		}catch(SQLException se){
+			//Handle errors for JDBC
+			se.printStackTrace();
+		}catch(Exception e){
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}
 	}
 
 	@Override
-	protected void shutDown()
-	{
+	protected void shutDown() {
 		clientToolbar.removeNavigation(navButton);
 		lootTrackerClient = null;
-	}
 
+		try {
+			conn.close();
+		} catch (SQLException se) {
+			//Handle errors for JDBC
+			se.printStackTrace();
+		} catch (Exception e) {
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}
+	}
 	@Subscribe
 	public void onNpcLootReceived(final NpcLootReceived npcLootReceived)
 	{
@@ -271,6 +309,60 @@ public class LootTrackerPlugin extends Plugin
 		final int combat = npc.getCombatLevel();
 		final LootTrackerItem[] entries = buildEntries(stack(items));
 		SwingUtilities.invokeLater(() -> panel.add(name, combat, entries));
+
+		String npcName = npc.getName();
+
+		//STEP 4: Execute a query
+		System.out.println("Creating statement...");
+		try{
+			stmt = conn.createStatement();
+		}catch(SQLException se){
+			//Handle errors for JDBC
+			se.printStackTrace();
+		}catch(Exception e){
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}
+		String sql = "INSERT INTO drops (mob, item, amount, time) VALUES";
+		for (LootTrackerItem i : entries) {
+			int id = i.getId();
+			int amount = i.getQuantity();
+			long utSeconds = System.currentTimeMillis()/1000L;
+
+			sql += "('"+ npcName + " level " + combat +"', " + id +", " + amount + ", " + utSeconds + " ),";
+		}
+		sql = sql.substring(0, sql.length() - 1);
+		sql+= ";";
+
+		//ResultSet rs = stmt.executeQuery(sql);
+		try{
+			stmt.executeUpdate(sql);
+			stmt.close();
+
+
+
+		}catch(SQLException se){
+			//Handle errors for JDBC
+			se.printStackTrace();
+		}catch(Exception e){
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}finally{
+			//finally block used to close resources
+			try{
+				if(stmt!=null)
+					stmt.close();
+			}catch(SQLException se2){
+			}// nothing we can do
+
+		}//end try
+		System.out.println("Goodbye!");
+
+		if (lootTrackerClient != null && config.saveLoot())
+		{
+			LootRecord lootRecord = new LootRecord(name, LootRecordType.PLAYER, toGameItems(items), Instant.now());
+			lootTrackerClient.submit(lootRecord);
+		}
 
 		if (lootTrackerClient != null && config.saveLoot())
 		{
@@ -289,11 +381,7 @@ public class LootTrackerPlugin extends Plugin
 		final LootTrackerItem[] entries = buildEntries(stack(items));
 		SwingUtilities.invokeLater(() -> panel.add(name, combat, entries));
 
-		if (lootTrackerClient != null && config.saveLoot())
-		{
-			LootRecord lootRecord = new LootRecord(name, LootRecordType.PLAYER, toGameItems(items), Instant.now());
-			lootTrackerClient.submit(lootRecord);
-		}
+
 	}
 
 	@Subscribe

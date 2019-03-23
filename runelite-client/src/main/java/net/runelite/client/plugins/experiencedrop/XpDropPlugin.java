@@ -25,6 +25,10 @@
 package net.runelite.client.plugins.experiencedrop;
 
 import com.google.inject.Provides;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
+import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.Map;
@@ -53,6 +57,15 @@ import net.runelite.client.plugins.PluginDescriptor;
 )
 public class XpDropPlugin extends Plugin
 {
+	// JDBC driver name and database URL
+	static final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
+	static final String DB_URL = "jdbc:mysql://localhost/statsosrs";
+
+	//  Database credentials
+	static final String USER = "root";
+	static final String PASS = "";
+	Connection conn = null;
+	Statement stmt = null;
 	private static final int XPDROP_PADDING = 2; // space between xp drop icons
 
 	@Inject
@@ -228,7 +241,40 @@ public class XpDropPlugin extends Plugin
 
 		client.runScript(XPDROP_DISABLED, lastSkill.ordinal(), previousExpGained);
 	}
+	@Override
+	protected void startUp() throws Exception
+	{
+		//Database connection
+		try{
 
+			//STEP 2: Register JDBC driver
+			Class.forName("com.mysql.jdbc.Driver");
+
+			//STEP 3: Open a connection
+			System.out.println("Connecting to database...");
+			conn = DriverManager.getConnection(DB_URL,USER,PASS);
+		}catch(SQLException se){
+			//Handle errors for JDBC
+			se.printStackTrace();
+		}catch(Exception e){
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}
+	}
+	@Override
+	protected void shutDown()
+	{
+
+		try{
+			conn.close();
+		}catch(SQLException se){
+			//Handle errors for JDBC
+			se.printStackTrace();
+		}catch(Exception e){
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}
+	}
 	@Subscribe
 	public void onExperienceChanged(ExperienceChanged event)
 	{
@@ -243,6 +289,48 @@ public class XpDropPlugin extends Plugin
 			previousExpGained = xp - previous;
 			hasDropped = true;
 		}
+		//STEP 4: Execute a query
+		System.out.println("Creating statement...");
+		try{
+			stmt = conn.createStatement();
+		}catch(SQLException se){
+			//Handle errors for JDBC
+			se.printStackTrace();
+		}catch(Exception e){
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}
+
+		long utSeconds = System.currentTimeMillis()/1000L;
+
+		String skillName = skill.getName();
+
+		String sql = "INSERT INTO exp (skill, xpgain, currentxp, time) VALUES ('"+ skillName +"', " + previousExpGained +", " + xp + ", " + utSeconds + " );";
+
+
+		//ResultSet rs = stmt.executeQuery(sql);
+		try{
+			stmt.executeUpdate(sql);
+			stmt.close();
+
+
+
+		}catch(SQLException se){
+			//Handle errors for JDBC
+			se.printStackTrace();
+		}catch(Exception e){
+			//Handle errors for Class.forName
+			e.printStackTrace();
+		}finally{
+			//finally block used to close resources
+			try{
+				if(stmt!=null)
+					stmt.close();
+			}catch(SQLException se2){
+			}// nothing we can do
+
+		}//end try
+		System.out.println("Goodbye!");
 	}
 
 }
